@@ -1,11 +1,13 @@
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from keyboards import admin_kb
+from keyboards import admin_kb, admin_payouts_kb
 from services import db
 from locales import t
+from config import OWNER_ID
 
 router = Router()
 
@@ -31,7 +33,6 @@ async def admin_panel(m: Message):
         return
     await m.answer("👑 Админ-панель", reply_markup=admin_kb())
 
-# --- ВЫДАТЬ ПОДПИСКУ ---
 @router.callback_query(F.data == "adm:give")
 async def give_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.give_uid)
@@ -54,7 +55,6 @@ async def give_days(m: Message, state: FSMContext):
     except: await m.answer("Нужно число."); return
     uid = (await state.get_data())["uid"]
     
-    # СБРАСЫВАЕМ СТАРУЮ ПОДПИСКУ И ВЫДАЕМ НОВУЮ
     with db.conn() as c:
         c.execute("UPDATE users SET subscription_end=NULL WHERE telegram_id=?", (uid,))
     
@@ -64,7 +64,6 @@ async def give_days(m: Message, state: FSMContext):
     try: await m.bot.send_message(uid, f"🎁 Тебе выдана подписка на {days} дней!")
     except: pass
 
-# --- ВЫДАТЬ БАЛАНС ---
 @router.callback_query(F.data == "adm:balance")
 async def give_bal_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.give_balance_uid)
@@ -92,7 +91,6 @@ async def give_bal_amount(m: Message, state: FSMContext):
     try: await m.bot.send_message(uid, f"💰 Тебе начислен баланс: +{amount} Stars!")
     except: pass
 
-# --- ОТВЕТ НА ТИКЕТ ---
 @router.callback_query(F.data.startswith("reply:"))
 async def reply_ticket_start(cb: CallbackQuery, state: FSMContext):
     _, ticket_id, user_id = cb.data.split(":")
@@ -106,10 +104,8 @@ async def reply_ticket_send(m: Message, state: FSMContext):
     data = await state.get_data()
     ticket_id = data["ticket_id"]
     user_id = data["user_id"]
-    
     u = db.get_user(user_id)
     lang = u["lang"] if u else "ru"
-    
     try:
         await m.bot.send_message(user_id, t(lang, "ticket_reply", ticket_id=ticket_id, text=m.text))
         db.close_ticket(ticket_id)
@@ -118,7 +114,6 @@ async def reply_ticket_send(m: Message, state: FSMContext):
         await m.answer(f"❌ Ошибка отправки: {e}")
     await state.clear()
 
-# --- ЧС И ЮЗЕРЫ ---
 @router.callback_query(F.data == "adm:bl")
 async def bl_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.bl_name)
@@ -147,16 +142,35 @@ async def users(cb: CallbackQuery):
     await cb.message.answer(txt)
     await cb.answer()
 
+# --- ЗАЯВКИ НА ВЫВОД ---
 @router.callback_query(F.data == "adm:payouts")
 async def payouts(cb: CallbackQuery):
     with db.conn() as c:
         rows = c.execute("SELECT * FROM payouts WHERE status='pending'").fetchall()
     if not rows:
-        await cb.message.answer("Заявок нет.")
-    else:
-        txt = "💰 Заявки:\n"
-        for r in rows:
-            txt += f"• #{r['id']} user {r['user_id']} — {r['amount']} Stars\n"
-        await cb.message.answer(txt)
+        await cb.message.answer("Заявок на вывод нет.")
+        await cb.answer()
+        return
+        
+    await cb.message.answer("💰 <b>Список заявок на вывод:</b>", parse_mode="HTML")
+    for r in rows:
+        txt = f"Заявка #{r['id']}\nUser ID: <code>{r['user_id']}</code>\nСумма: <b>{r['amount']} Stars</b>"
+        await cb.message.answer(txt, reply_markup=admin_payouts_kb(r['id']), parse_mode="HTML")
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("paid:"))
+async def mark_paid(cb: CallbackQuery):
+    payout_id = int(cb.data.split(":")[1])
+    with db.conn() as c:
+        row = c.execute("SELECT * FROM payouts WHERE id=?", (payout_id,)).fetchone()
+        if not row or row['status'] != 'pending':
+            await cb.answer("Заявка не найдена или уже выплачена.", show_alert=True)
+            return
+        c.execute("UPDATE payouts SET status='paid', paid_at=? WHERE id=?", (datetime.now().isoformat(), payout_id))
+        
+    await cb.message.edit_text(f"✅ Заявка #{payout_id} отмечена как выплаченная.")
     await cb.answer()
     
+    try:
+        await cb.bot.send_message(row['user_id'], f"🎉 Твоя заявка на вывод {row['amount']} Stars была успешно выплачена!")
+    except: pass
