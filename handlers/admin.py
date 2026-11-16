@@ -5,20 +5,23 @@ from aiogram.fsm.state import State, StatesGroup
 
 from keyboards import admin_kb
 from services import db
+from locales import t
 
 router = Router()
 
 class AdminFlow(StatesGroup):
     give_uid = State()
     give_days = State()
+    give_balance_uid = State()
+    give_balance_amount = State()
     bl_name = State()
     bl_reason = State()
+    reply_ticket = State()
 
 def is_admin(u): return u and u["role"] in ("admin", "owner")
 
 @router.message(F.text.in_({"👑 Админ-панель"}))
 async def admin_panel(m: Message):
-    # Принудительно делаем тебя владельцем при нажатии
     if m.from_user.id == 7564228003:
         db.set_role(m.from_user.id, "owner")
     
@@ -28,6 +31,7 @@ async def admin_panel(m: Message):
         return
     await m.answer("👑 Админ-панель", reply_markup=admin_kb())
 
+# --- ВЫДАТЬ ПОДПИСКУ ---
 @router.callback_query(F.data == "adm:give")
 async def give_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.give_uid)
@@ -55,6 +59,61 @@ async def give_days(m: Message, state: FSMContext):
     try: await m.bot.send_message(uid, f"🎁 Тебе выдана подписка на {days} дней!")
     except: pass
 
+# --- ВЫДАТЬ БАЛАНС ---
+@router.callback_query(F.data == "adm:balance")
+async def give_bal_start(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminFlow.give_balance_uid)
+    await cb.message.answer("Введи Telegram ID пользователя, которому нужно начислить баланс:")
+    await cb.answer()
+
+@router.message(AdminFlow.give_balance_uid)
+async def give_bal_uid(m: Message, state: FSMContext):
+    try: uid = int(m.text.strip())
+    except: await m.answer("Нужен числовой ID."); return
+    if not db.get_user(uid):
+        await m.answer("Пользователь не найден."); return
+    await state.update_data(uid=uid)
+    await state.set_state(AdminFlow.give_balance_amount)
+    await m.answer("Сколько Stars начислить?")
+
+@router.message(AdminFlow.give_balance_amount)
+async def give_bal_amount(m: Message, state: FSMContext):
+    try: amount = float(m.text.strip())
+    except: await m.answer("Нужно число."); return
+    uid = (await state.get_data())["uid"]
+    db.add_balance(uid, amount)
+    await state.clear()
+    await m.answer(f"✅ Начислено {amount} Stars пользователю {uid}")
+    try: await m.bot.send_message(uid, f"💰 Тебе начислен баланс: +{amount} Stars!")
+    except: pass
+
+# --- ОТВЕТ НА ТИКЕТ ---
+@router.callback_query(F.data.startswith("reply:"))
+async def reply_ticket_start(cb: CallbackQuery, state: FSMContext):
+    _, ticket_id, user_id = cb.data.split(":")
+    await state.update_data(ticket_id=int(ticket_id), user_id=int(user_id))
+    await state.set_state(AdminFlow.reply_ticket)
+    await cb.message.answer(f"✍️ Напиши ответ на тикет #{ticket_id}:")
+    await cb.answer()
+
+@router.message(AdminFlow.reply_ticket)
+async def reply_ticket_send(m: Message, state: FSMContext):
+    data = await state.get_data()
+    ticket_id = data["ticket_id"]
+    user_id = data["user_id"]
+    
+    u = db.get_user(user_id)
+    lang = u["lang"] if u else "ru"
+    
+    try:
+        await m.bot.send_message(user_id, t(lang, "ticket_reply", ticket_id=ticket_id, text=m.text))
+        db.close_ticket(ticket_id)
+        await m.answer("✅ Ответ отправлен, тикет закрыт.")
+    except Exception as e:
+        await m.answer(f"❌ Ошибка отправки: {e}")
+    await state.clear()
+
+# --- ОСТАЛЬНОЕ ---
 @router.callback_query(F.data == "adm:bl")
 async def bl_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.bl_name)
