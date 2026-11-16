@@ -177,10 +177,10 @@ async def got_topic(m: Message, state: FSMContext):
         text += "\n\n⚠️ <b>Причины:</b>\n" + "\n".join(reasons)
     await m.answer(text, parse_mode="HTML")
 
-# --- ТОП ПО НИШЕ ---
+# --- ТОП ПО НИШЕ (Исправлена колонка username) ---
 @router.message(F.text.in_({"🏆 Топ по нише", "🏆 Top by niche"}))
 async def top_niche(m: Message, state: FSMContext):
-    await state.clear() # Жесткий сброс состояний
+    await state.clear()
     u = db.get_user(m.from_user.id)
     await state.set_state(CheckFlow.waiting_top_topic)
     await m.answer(t(u["lang"], "send_topic"))
@@ -193,14 +193,14 @@ async def process_top_niche(m: Message, state: FSMContext):
     
     await m.answer("⏳ Ищу каналы...")
     
-    # 1. Сначала ищем в нашей базе
+    # 1. Сначала ищем в нашей базе (исправлено channel_username на username)
     with db.conn() as c:
-        rows = c.execute("SELECT channel_username, last_err, last_subs FROM channels_cache WHERE LOWER(category)=? ORDER BY last_err DESC LIMIT 5", (topic,)).fetchall()
+        rows = c.execute("SELECT username, last_err, last_subs FROM channels_cache WHERE LOWER(category)=? ORDER BY last_err DESC LIMIT 5", (topic,)).fetchall()
 
     if rows:
         txt = f"🏆 <b>Топ каналов по теме «{topic}» (из базы бота):</b>\n\n"
         for i, r in enumerate(rows, 1):
-            txt += f"{i}. @{r['channel_username']} — ERR <b>{r['last_err']}%</b> (👥 {r['last_subs']})\n"
+            txt += f"{i}. @{r['username']} — ERR <b>{r['last_err']}%</b> (👥 {r['last_subs']})\n"
         await m.answer(txt, parse_mode="HTML")
         return
 
