@@ -53,6 +53,11 @@ async def give_days(m: Message, state: FSMContext):
     try: days = int(m.text.strip())
     except: await m.answer("Нужно число."); return
     uid = (await state.get_data())["uid"]
+    
+    # СБРАСЫВАЕМ СТАРУЮ ПОДПИСКУ И ВЫДАЕМ НОВУЮ
+    with db.conn() as c:
+        c.execute("UPDATE users SET subscription_end=NULL WHERE telegram_id=?", (uid,))
+    
     end = db.add_subscription(uid, days)
     await state.clear()
     await m.answer(f"✅ Выдано {days} дней. До {end[:10]}")
@@ -63,7 +68,7 @@ async def give_days(m: Message, state: FSMContext):
 @router.callback_query(F.data == "adm:balance")
 async def give_bal_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.give_balance_uid)
-    await cb.message.answer("Введи Telegram ID пользователя, которому нужно начислить баланс:")
+    await cb.message.answer("Введи Telegram ID пользователя:")
     await cb.answer()
 
 @router.message(AdminFlow.give_balance_uid)
@@ -113,11 +118,11 @@ async def reply_ticket_send(m: Message, state: FSMContext):
         await m.answer(f"❌ Ошибка отправки: {e}")
     await state.clear()
 
-# --- ОСТАЛЬНОЕ ---
+# --- ЧС И ЮЗЕРЫ ---
 @router.callback_query(F.data == "adm:bl")
 async def bl_start(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminFlow.bl_name)
-    await cb.message.answer("Юзернейм канала для черного списка (@name):")
+    await cb.message.answer("Юзернейм канала для ЧС (@name):")
     await cb.answer()
 
 @router.message(AdminFlow.bl_name)
@@ -138,7 +143,7 @@ async def users(cb: CallbackQuery):
     rows = db.all_users(20)
     txt = "👥 Пользователи:\n\n"
     for r in rows:
-        txt += f"• {r['telegram_id']} @{r['username'] or '—'} | {r['role']} | до {r['subscription_end'][:10] if r['subscription_end'] else '—'}\n"
+        txt += f"• {r['telegram_id']} @{r['username'] or '—'} | {r['role']}\n"
     await cb.message.answer(txt)
     await cb.answer()
 
@@ -154,3 +159,4 @@ async def payouts(cb: CallbackQuery):
             txt += f"• #{r['id']} user {r['user_id']} — {r['amount']} Stars\n"
         await cb.message.answer(txt)
     await cb.answer()
+    
