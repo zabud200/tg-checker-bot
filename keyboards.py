@@ -10,10 +10,10 @@ def lang_kb():
 
 def main_menu(lang, is_admin=False):
     rows = [
-        [KeyboardButton(text=t(lang, "btn_check")), KeyboardButton(text=t(lang, "btn_history"))],
-        [KeyboardButton(text=t(lang, "btn_top")), KeyboardButton(text=t(lang, "btn_sub"))],
-        [KeyboardButton(text=t(lang, "btn_ref")), KeyboardButton(text=t(lang, "btn_help"))],
-        [KeyboardButton(text=t(lang, "btn_support"))]
+        [KeyboardButton(text=t(lang, "btn_check")), KeyboardButton(text=t(lang, "btn_profile"))],
+        [KeyboardButton(text=t(lang, "btn_history")), KeyboardButton(text=t(lang, "btn_top"))],
+        [KeyboardButton(text=t(lang, "btn_sub")), KeyboardButton(text=t(lang, "btn_ref"))],
+        [KeyboardButton(text=t(lang, "btn_help")), KeyboardButton(text=t(lang, "btn_support"))]
     ]
     if is_admin:
         rows.append([KeyboardButton(text=t(lang, "btn_admin"))])
