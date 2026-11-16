@@ -9,7 +9,7 @@ from locales import t
 from config import SUBSCRIPTION_PRICES, REFERRAL_BONUS_DAYS, REFERRAL_COMMISSION, MIN_PAYOUT_STARS
 from keyboards import lang_kb, main_menu, sub_kb
 from services import db
-from services.apify_client import analyze_channel, search_channels
+from services.apify_client import analyze_channel
 from services.payments import send_stars_invoice, PLAN_DAYS
 
 router = Router()
@@ -30,29 +30,20 @@ async def start(m: Message, state: FSMContext):
         except: pass
     
     u = db.get_user(m.from_user.id)
+    
+    # Если пользователя нет - создаем
     if not u:
         db.create_user(m.from_user.id, m.from_user.username, ref)
         u = db.get_user(m.from_user.id)
         if ref and ref != m.from_user.id:
             db.add_referral(ref, m.from_user.id, 0, 0)
 
-    # ЖЕСТКАЯ ПРОВЕРКА: Если это твой ID, делаем тебя владельцем
+    # Принудительно даем тебе роль owner
     if m.from_user.id == 7564228003 and u["role"] != "owner":
         db.set_role(m.from_user.id, "owner")
         u = db.get_user(m.from_user.id)
 
-    await m.answer(t("ru", "choose_lang"), reply_markup=lang_kb())
-    from config import OWNER_ID  # Импортируем твой ID
-    
-    if not u:
-        db.create_user(m.from_user.id, m.from_user.username, ref)
-        # Если это твой ID - даем роль owner
-        if m.from_user.id == OWNER_ID:
-            db.set_role(m.from_user.id, "owner")
-        u = db.get_user(m.from_user.id)
-        if ref and ref != m.from_user.id:
-            db.add_referral(ref, m.from_user.id, 0, 0)
-    
+    # Отправляем ОДИН раз выбор языка
     await m.answer(t("ru", "choose_lang"), reply_markup=lang_kb())
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -108,6 +99,7 @@ async def got_topic(m: Message, state: FSMContext):
     if err > 100 or err < 0:
         err = 0.0 
         qs = 0
+
     db.save_check(m.from_user.id, clean, topic, subs, reach, err, qs, "")
     db.consume_check(m.from_user.id)
     avg = db.avg_err_by_category(topic)
@@ -121,10 +113,8 @@ async def got_topic(m: Message, state: FSMContext):
     else:
         verdict = t(u["lang"], "verdict_take")
 
-    
+    # Поиск топа временно отключен из-за ошибки 400
     top_lines = ""
-    for ch in top[:3]:
-        top_lines += f"\n• @{ch.get('username','?')} — ERR {ch.get('errPercent',0)}%"
 
     text = (f"📊 <b>{clean}</b>\n👥 {subs:,} | 👁 ERR: <b>{err}%</b>\n"
             f"🏷 {topic}\n📉 Средний ERR по нише: <b>{avg:.1f}%</b>\n\n<b>{verdict}</b>")
