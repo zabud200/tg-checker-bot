@@ -17,7 +17,7 @@ TEXTS = {
         "verdict_take": "✅ БРАТЬ",
         "verdict_risk": "⚠️ РИСКОВАННО",
         "verdict_no": "🚫 НЕ БРАТЬ",
-        "sub_info": "💳 Подписка\n\n1 месяц — {p1} Stars\n3 месяца — {p3} Stars\n\nОплата через Telegram Stars или напрямую: @idmmhe ,(в разработке)",
+        "sub_info": "💳 Подписка\n\n1 месяц — {p1} Stars\n3 месяца — {p3} Stars\n\nОплата через Telegram Stars или напрямую: @idmmhe (в разработке)",
         "btn_buy_1m": "Купить 1 месяц ({p1}⭐)",
         "btn_buy_3m": "Купить 3 месяца ({p3}⭐)",
         "payment_ok": "✅ Оплата прошла! Подписка активирована до {date}.",
