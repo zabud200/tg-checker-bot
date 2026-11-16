@@ -1,0 +1,16 @@
+import os
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+
+SUBSCRIPTION_PRICES = {
+    "1m": 150,
+    "3m": 400,
+}
+REFERRAL_BONUS_DAYS = 3
+REFERRAL_COMMISSION = 0.15
+MIN_PAYOUT_STARS = 500
+FREE_TRIAL_CHECKS = 3
+
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+DB_PATH = "bot_data.db"
