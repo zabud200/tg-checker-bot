@@ -6,10 +6,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from locales import t
-from config import SUBSCRIPTION_PRICES, REFERRAL_BONUS_DAYS, REFERRAL_COMMISSION, MIN_PAYOUT_STARS
-from keyboards import lang_kb, main_menu, sub_kb
+from config import SUBSCRIPTION_PRICES, REFERRAL_BONUS_DAYS, REFERRAL_COMMISSION, MIN_PAYOUT_STARS, OWNER_ID
+from keyboards import lang_kb, main_menu, sub_kb, reply_ticket_kb
 from services import db
-from services.apify_client import analyze_channel
+from services.apify_client import analyze_channel, search_channels
 from services.payments import send_stars_invoice, PLAN_DAYS
 
 router = Router()
@@ -17,6 +17,8 @@ router = Router()
 class CheckFlow(StatesGroup):
     waiting_link = State()
     waiting_topic = State()
+    waiting_top_topic = State()
+    waiting_support_msg = State()
 
 def is_admin(u): return u and u["role"] in ("admin", "owner")
 
@@ -30,20 +32,16 @@ async def start(m: Message, state: FSMContext):
         except: pass
     
     u = db.get_user(m.from_user.id)
-    
-    # Если пользователя нет - создаем
     if not u:
         db.create_user(m.from_user.id, m.from_user.username, ref)
         u = db.get_user(m.from_user.id)
         if ref and ref != m.from_user.id:
             db.add_referral(ref, m.from_user.id, 0, 0)
 
-    # Принудительно даем тебе роль owner
     if m.from_user.id == 7564228003 and u["role"] != "owner":
         db.set_role(m.from_user.id, "owner")
         u = db.get_user(m.from_user.id)
 
-    # Отправляем ОДИН раз выбор языка
     await m.answer(t("ru", "choose_lang"), reply_markup=lang_kb())
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -55,6 +53,32 @@ async def set_language(cb: CallbackQuery):
     await cb.message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang, is_admin(u)))
     await cb.answer()
 
+# --- ПОДДЕРЖКА ---
+@router.message(F.text.in_({"🆘 Поддержка", "🆘 Support"}))
+async def ask_support(m: Message, state: FSMContext):
+    u = db.get_user(m.from_user.id)
+    await state.set_state(CheckFlow.waiting_support_msg)
+    await m.answer(t(u["lang"], "support_prompt"))
+
+@router.message(CheckFlow.waiting_support_msg)
+async def got_support_msg(m: Message, state: FSMContext):
+    u = db.get_user(m.from_user.id)
+    await state.clear()
+    
+    # Создаем тикет
+    ticket_id = db.create_ticket(m.from_user.id, m.text)
+    
+    # Отправляем пользователю подтверждение
+    await m.answer(t(u["lang"], "ticket_created", ticket_id=ticket_id))
+    
+    # Отправляем админу (тебе)
+    admin_text = f"🎫 <b>Тикет #{ticket_id}</b>\nОт: @{m.from_user.username or '—'} (ID: {m.from_user.id})\n\n{m.text}"
+    try:
+        await m.bot.send_message(OWNER_ID, admin_text, reply_markup=reply_ticket_kb(ticket_id, m.from_user.id), parse_mode="HTML")
+    except Exception as e:
+        print(f"Ошибка отправки админу: {e}")
+
+# --- ПРОВЕРКА КАНАЛА ---
 @router.message(F.text.in_({"🔍 Проверить канал", "🔍 Check channel"}))
 async def ask_link(m: Message, state: FSMContext):
     u = db.get_user(m.from_user.id)
@@ -75,7 +99,8 @@ async def got_link(m: Message, state: FSMContext):
 async def got_topic(m: Message, state: FSMContext):
     u = db.get_user(m.from_user.id)
     data = await state.get_data()
-    link = data["link"]; topic = m.text.strip().lower()
+    link = data.get("link")
+    topic = m.text.strip().lower()
     await state.clear()
     await m.answer(t(u["lang"], "analyzing"))
 
@@ -95,7 +120,6 @@ async def got_topic(m: Message, state: FSMContext):
     err = res.get("errPercent") or res.get("err") or 0.0
     qs = res.get("qualityScore", 0) or 0
 
-    # Защита от неадекватных данных (накрутка или ошибка парсера)
     if err > 100 or err < 0:
         err = 0.0 
         qs = 0
@@ -104,7 +128,10 @@ async def got_topic(m: Message, state: FSMContext):
     db.consume_check(m.from_user.id)
     avg = db.avg_err_by_category(topic)
 
-    if qs and qs < 40:
+    # НОВАЯ ЛОГИКА ВЕРДИКТА
+    if subs < 100 or (err == 0 and qs == 0):
+        verdict = t(u["lang"], "verdict_unknown")
+    elif qs < 40:
         verdict = t(u["lang"], "verdict_no")
     elif avg > 0 and err < avg * 0.6:
         verdict = t(u["lang"], "verdict_no")
@@ -113,15 +140,38 @@ async def got_topic(m: Message, state: FSMContext):
     else:
         verdict = t(u["lang"], "verdict_take")
 
-    # Поиск топа временно отключен из-за ошибки 400
-    top_lines = ""
-
     text = (f"📊 <b>{clean}</b>\n👥 {subs:,} | 👁 ERR: <b>{err}%</b>\n"
             f"🏷 {topic}\n📉 Средний ERR по нише: <b>{avg:.1f}%</b>\n\n<b>{verdict}</b>")
-    if top_lines:
-        text += f"\n\n🏆 Топ в нише:{top_lines}"
     await m.answer(text, parse_mode="HTML")
 
+# --- ТОП ПО НИШЕ ---
+@router.message(F.text.in_({"🏆 Топ по нише", "🏆 Top by niche"}))
+async def top_niche(m: Message, state: FSMContext):
+    u = db.get_user(m.from_user.id)
+    await state.set_state(CheckFlow.waiting_top_topic)
+    await m.answer(t(u["lang"], "send_topic"))
+
+@router.message(CheckFlow.waiting_top_topic)
+async def process_top_niche(m: Message, state: FSMContext):
+    u = db.get_user(m.from_user.id)
+    topic = m.text.strip().lower()
+    await state.clear()
+    await m.answer("⏳ Ищу лучшие каналы в этой нише...")
+    
+    top = await search_channels(topic, 5)
+    if not top:
+        await m.answer("❌ Не удалось найти каналы (или ошибка Apify).")
+        return
+        
+    txt = f"🏆 <b>Топ каналов по теме «{topic}»:</b>\n\n"
+    for i, ch in enumerate(top[:5], 1):
+        username = ch.get("username", "unknown")
+        ch_err = ch.get("errPercent", 0)
+        ch_subs = ch.get("subscribers", 0)
+        txt += f"{i}. @{username} — ERR <b>{ch_err}%</b> (👥 {ch_subs})\n"
+    await m.answer(txt, parse_mode="HTML")
+
+# --- ОСТАЛЬНЫЕ КНОПКИ ---
 @router.message(F.text.in_({"📜 Моя история", "📜 History"}))
 async def history(m: Message):
     u = db.get_user(m.from_user.id)
@@ -133,13 +183,6 @@ async def history(m: Message):
     for r in rows:
         txt += f"• @{r['channel_username']} — ERR {r['err']}% ({r['category']})\n"
     await m.answer(txt)
-
-@router.message(F.text.in_({"🏆 Топ по нише", "🏆 Top by niche"}))
-async def top_niche(m: Message, state: FSMContext):
-    u = db.get_user(m.from_user.id)
-    await state.set_state(CheckFlow.waiting_topic)
-    await state.update_data(link="__top__")
-    await m.answer(t(u["lang"], "send_topic"))
 
 @router.message(F.text.in_({"💳 Подписка", "💳 Subscription"}))
 async def sub(m: Message):
