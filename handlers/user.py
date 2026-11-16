@@ -121,7 +121,7 @@ async def got_topic(m: Message, state: FSMContext):
     else:
         verdict = t(u["lang"], "verdict_take")
 
-    top = await search_channels(topic, 5)
+    
     top_lines = ""
     for ch in top[:3]:
         top_lines += f"\n• @{ch.get('username','?')} — ERR {ch.get('errPercent',0)}%"
