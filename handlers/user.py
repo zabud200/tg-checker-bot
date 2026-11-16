@@ -86,6 +86,10 @@ async def got_topic(m: Message, state: FSMContext):
     err = res.get("errPercent") or res.get("err") or 0.0
     qs = res.get("qualityScore", 0) or 0
 
+    # Защита от неадекватных данных (накрутка или ошибка парсера)
+    if err > 100 or err < 0:
+        err = 0.0 
+        qs = 0
     db.save_check(m.from_user.id, clean, topic, subs, reach, err, qs, "")
     db.consume_check(m.from_user.id)
     avg = db.avg_err_by_category(topic)
