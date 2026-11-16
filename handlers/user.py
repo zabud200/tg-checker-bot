@@ -53,26 +53,37 @@ async def set_language(cb: CallbackQuery):
     await cb.message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang, is_admin(u)))
     await cb.answer()
 
-# --- ПРОФИЛЬ ---
+# --- ПРОФИЛЬ (Исправлен) ---
 @router.message(F.text.in_({"👤 Профиль", "👤 Profile"}))
 async def profile(m: Message):
     u = db.get_user(m.from_user.id)
     
-    if u["subscription_end"]:
-        end_date = datetime.fromisoformat(u["subscription_end"])
-        days_left = (end_date - datetime.now()).days
-        sub_status = f"Активна ({days_left} дн.)" if days_left > 0 else "Истекла"
+    if is_admin(u):
+        sub_status = "Админ (безлимит)"
+        checks = "∞"
     else:
-        sub_status = "Нет (триал)"
+        if u["subscription_end"]:
+            try:
+                end_date = datetime.fromisoformat(u["subscription_end"])
+                if end_date > datetime.now():
+                    days_left = (end_date - datetime.now()).days
+                    sub_status = f"Активна (еще {days_left} дн.)"
+                else:
+                    sub_status = "Истекла"
+            except:
+                sub_status = "Ошибка даты"
+        else:
+            sub_status = "Нет (триал)"
+        checks = u["free_checks_left"]
         
     text = t(u["lang"], "profile_text", 
              status=sub_status, 
-             checks=u["free_checks_left"], 
+             checks=checks, 
              balance=u["referral_balance"] or 0, 
              uid=m.from_user.id)
     await m.answer(text, parse_mode="HTML")
 
-# --- ПОДДЕРЖКА ---
+# --- ПОДДЕРЖКА (Защита от нажатия кнопок) ---
 @router.message(F.text.in_({"🆘 Поддержка", "🆘 Support"}))
 async def ask_support(m: Message, state: FSMContext):
     u = db.get_user(m.from_user.id)
@@ -82,19 +93,25 @@ async def ask_support(m: Message, state: FSMContext):
 @router.message(CheckFlow.waiting_support_msg)
 async def got_support_msg(m: Message, state: FSMContext):
     u = db.get_user(m.from_user.id)
-    if not m.text:
-        await m.answer("❌ Пожалуйста, напиши свой вопрос текстом (без фото/стикеров).")
+    
+    # Список всех кнопок, чтобы бот не принимал их за текст
+    buttons = [t(u["lang"], k) for k in ["btn_check", "btn_profile", "btn_history", "btn_top", "btn_sub", "btn_ref", "btn_help", "btn_support", "btn_admin"]]
+    
+    if not m.text or m.text in buttons:
+        await m.answer("❌ Пожалуйста, напиши свой вопрос текстом (не нажимай кнопки меню).")
         return
+        
     await state.clear()
     ticket_id = db.create_ticket(m.from_user.id, m.text)
     await m.answer(t(u["lang"], "ticket_created", ticket_id=ticket_id))
+    
     admin_text = f"🎫 <b>Тикет #{ticket_id}</b>\nОт: @{m.from_user.username or '—'} (ID: {m.from_user.id})\n\n{m.text}"
     try:
         await m.bot.send_message(OWNER_ID, admin_text, reply_markup=reply_ticket_kb(ticket_id, m.from_user.id), parse_mode="HTML")
     except Exception as e:
         print(f"Ошибка отправки админу: {e}")
 
-# --- ПРОВЕРКА КАНАЛА ---
+# --- ПРОВЕРКА КАНАЛА (Убрана логика комментов/реакций) ---
 @router.message(F.text.in_({"🔍 Проверить канал", "🔍 Check channel"}))
 async def ask_link(m: Message, state: FSMContext):
     await state.clear()
@@ -136,19 +153,15 @@ async def got_topic(m: Message, state: FSMContext):
     reach = res.get("avgReach", 0) or 0
     err = res.get("errPercent") or res.get("err") or 0.0
     qs = res.get("qualityScore", 0) or 0
-    comments = res.get("avgComments", 0) or 0
-    reactions = res.get("avgReactions", 0) or 0
-    posts_per_week = res.get("postsPerWeek", 0) or 0
 
     if err > 100 or err < 0:
         err = 0.0; qs = 0
 
     db.save_check(m.from_user.id, clean, topic, subs, reach, err, qs, "")
-    db.consume_check(m.from_user.id)
+    if not is_admin(u):
+        db.consume_check(m.from_user.id)
+        
     avg = db.avg_err_by_category(topic)
-
-    comm_ratio = (comments / subs * 100) if subs > 0 else 0
-    react_ratio = (reactions / subs * 100) if subs > 0 else 0
 
     verdict = t(u["lang"], "verdict_take")
     reasons = []
@@ -156,28 +169,24 @@ async def got_topic(m: Message, state: FSMContext):
     if subs < 100 or (err == 0 and qs == 0):
         verdict = t(u["lang"], "verdict_unknown")
     else:
-        if posts_per_week < 1:
-            reasons.append("❌ Канал заброшен (реже 1 поста в неделю)")
-        if comm_ratio < 0.1 and react_ratio < 0.1:
-            reasons.append("❌ Аудитория мертвая (нет комментов и реакций)")
-        if err < 5.0:
+        if err < 3.0:
             reasons.append(f"❌ Очень низкий ERR ({err:.1f}%)")
+        if qs > 0 and qs < 40:
+            reasons.append(f"❌ Низкий Quality Score ({qs}/100)")
         
-        if len(reasons) >= 2 or qs < 40:
+        if len(reasons) >= 2 or (qs > 0 and qs < 30):
             verdict = t(u["lang"], "verdict_no")
         elif len(reasons) == 1:
             verdict = t(u["lang"], "verdict_risk")
 
     text = (f"📊 <b>{clean}</b>\n👥 {subs:,} | 👁 ERR: <b>{err}%</b>\n"
-            f"💬 Комменты: {comm_ratio:.1f}% | 🔥 Реакции: {react_ratio:.1f}%\n"
-            f"📝 Постов в неделю: {posts_per_week}\n"
             f"🏷 {topic} | 📉 Средний ERR: <b>{avg:.1f}%</b>\n\n<b>{verdict}</b>")
             
     if reasons:
         text += "\n\n⚠️ <b>Причины:</b>\n" + "\n".join(reasons)
     await m.answer(text, parse_mode="HTML")
 
-# --- ТОП ПО НИШЕ (Исправлена колонка username) ---
+# --- ТОП ПО НИШЕ ---
 @router.message(F.text.in_({"🏆 Топ по нише", "🏆 Top by niche"}))
 async def top_niche(m: Message, state: FSMContext):
     await state.clear()
@@ -193,7 +202,6 @@ async def process_top_niche(m: Message, state: FSMContext):
     
     await m.answer("⏳ Ищу каналы...")
     
-    # 1. Сначала ищем в нашей базе (исправлено channel_username на username)
     with db.conn() as c:
         rows = c.execute("SELECT username, last_err, last_subs FROM channels_cache WHERE LOWER(category)=? ORDER BY last_err DESC LIMIT 5", (topic,)).fetchall()
 
@@ -204,7 +212,6 @@ async def process_top_niche(m: Message, state: FSMContext):
         await m.answer(txt, parse_mode="HTML")
         return
 
-    # 2. Если в базе пусто, ищем в интернете
     top = await search_channels(topic, 5)
     if top:
         txt = f"🏆 <b>Топ каналов по теме «{topic}» (из интернета):</b>\n\n"
@@ -215,7 +222,7 @@ async def process_top_niche(m: Message, state: FSMContext):
             txt += f"{i}. @{username} — ERR <b>{ch_err}%</b> (👥 {ch_subs})\n"
         await m.answer(txt, parse_mode="HTML")
     else:
-        await m.answer("❌ Не удалось найти каналы. Либо в базе пусто, либо поиск в интернете не дал результатов.")
+        await m.answer("❌ В этой нише пока нет проверенных каналов, и поиск в интернете ничего не дал.")
 
 # --- ИСТОРИЯ ---
 @router.message(F.text.in_({"📜 Моя история", "📜 History"}))
