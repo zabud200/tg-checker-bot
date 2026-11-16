@@ -29,8 +29,13 @@ async def start(m: Message, state: FSMContext):
         try: ref = int(args[1][4:])
         except: pass
     u = db.get_user(m.from_user.id)
+    from config import OWNER_ID  # Импортируем твой ID
+    
     if not u:
         db.create_user(m.from_user.id, m.from_user.username, ref)
+        # Если это твой ID - даем роль owner
+        if m.from_user.id == OWNER_ID:
+            db.set_role(m.from_user.id, "owner")
         u = db.get_user(m.from_user.id)
         if ref and ref != m.from_user.id:
             db.add_referral(ref, m.from_user.id, 0, 0)
