@@ -13,6 +13,7 @@ def main_menu(lang, is_admin=False):
         [KeyboardButton(text=t(lang, "btn_check")), KeyboardButton(text=t(lang, "btn_history"))],
         [KeyboardButton(text=t(lang, "btn_top")), KeyboardButton(text=t(lang, "btn_sub"))],
         [KeyboardButton(text=t(lang, "btn_ref")), KeyboardButton(text=t(lang, "btn_help"))],
+        [KeyboardButton(text=t(lang, "btn_support"))]
     ]
     if is_admin:
         rows.append([KeyboardButton(text=t(lang, "btn_admin"))])
@@ -28,7 +29,13 @@ def sub_kb(lang):
 def admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Выдать подписку", callback_data="adm:give")],
+        [InlineKeyboardButton(text="💰 Выдать баланс", callback_data="adm:balance")],
         [InlineKeyboardButton(text="🚫 Черный список", callback_data="adm:bl")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="adm:users")],
         [InlineKeyboardButton(text="💰 Заявки на вывод", callback_data="adm:payouts")],
+    ])
+
+def reply_ticket_kb(ticket_id, user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✍️ Ответить", callback_data=f"reply:{ticket_id}:{user_id}")]
     ])
