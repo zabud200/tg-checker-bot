@@ -50,6 +50,11 @@ def init_db():
             user_id INTEGER, amount INTEGER, plan TEXT, payload TEXT,
             created_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER, message TEXT, status TEXT DEFAULT 'open',
+            created_at TEXT
+        );
         """)
 
 def get_user(uid):
@@ -92,6 +97,10 @@ def add_subscription(uid, days):
     with conn() as c:
         c.execute("UPDATE users SET subscription_end=? WHERE telegram_id=?", (new, uid))
     return new
+
+def add_balance(uid, amount):
+    with conn() as c:
+        c.execute("UPDATE users SET referral_balance=referral_balance+? WHERE telegram_id=?", (amount, uid))
 
 def save_check(uid, username, category, subs, reach, err, qs, verdict):
     with conn() as c:
@@ -146,3 +155,20 @@ def save_payment(uid, amount, plan, payload):
     with conn() as c:
         c.execute("INSERT INTO payments (user_id, amount, plan, payload, created_at) VALUES (?,?,?,?,?)",
                   (uid, amount, plan, payload, datetime.now().isoformat()))
+
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ ТИКЕТОВ ---
+def create_ticket(uid, message):
+    with conn() as c:
+        cursor = c.cursor()
+        cursor.execute("INSERT INTO tickets (user_id, message, created_at) VALUES (?,?,?)",
+                       (uid, message, datetime.now().isoformat()))
+        return cursor.lastrowid
+
+def get_ticket(ticket_id):
+    with conn() as c:
+        return c.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+
+def close_ticket(ticket_id):
+    with conn() as c:
+        c.execute("UPDATE tickets SET status='closed' WHERE id=?", (ticket_id,))
+        
