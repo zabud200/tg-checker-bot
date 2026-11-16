@@ -39,3 +39,13 @@ def reply_ticket_kb(ticket_id, user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✍️ Ответить", callback_data=f"reply:{ticket_id}:{user_id}")]
     ])
+
+def payout_request_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💸 Запросить вывод Stars", callback_data="request_payout")]
+    ])
+
+def admin_payouts_kb(payout_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Выплачено", callback_data=f"paid:{payout_id}")]
+    ])
