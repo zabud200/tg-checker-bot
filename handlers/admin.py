@@ -142,7 +142,6 @@ async def users(cb: CallbackQuery):
     await cb.message.answer(txt)
     await cb.answer()
 
-# --- ЗАЯВКИ НА ВЫВОД ---
 @router.callback_query(F.data == "adm:payouts")
 async def payouts(cb: CallbackQuery):
     with db.conn() as c:
